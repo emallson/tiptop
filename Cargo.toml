@@ -1,0 +1,36 @@
+[package]
+authors = ["J David Smith <emallson@atlanis.net>"]
+name = "tiptop"
+version = "0.1.0"
+
+[dependencies]
+bit-set = "0.4.0"
+docopt = "0.7.0"
+lazy_static = "0.2.2"
+rand = "0.3.15"
+rayon = "0.6.0"
+rustc-serialize = "0.3.22"
+serde_json = "0.9.6"
+slog = "1.5.2"
+slog-json = "1.2.1"
+slog-stream = "1.2.0"
+slog-term = "1.5.0"
+
+[dependencies.capngraph]
+git = "https://github.com/emallson/capngraph.git"
+optional = false
+
+[dependencies.petgraph]
+features = ["quickcheck"]
+version = "0.4.3"
+
+[dependencies.ris]
+git = "https://github.com/emallson/ris.rs.git"
+optional = false
+
+[dependencies.rplex]
+git = "https://github.com/emallson/rplex.git"
+optional = false
+
+[dev-dependencies]
+quickcheck = "0.4.1"
