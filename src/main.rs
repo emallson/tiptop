@@ -67,10 +67,13 @@ fn binom(n: usize, k: usize) -> f64 {
 fn ilp_mc(g: &Graph<(), f32>,
           rr_sets: &Vec<BTreeSet<NodeIndex>>,
           k: usize,
+          threads: usize,
           log: &Logger)
           -> BTreeSet<NodeIndex> {
     let mut env = Env::new().unwrap();
     env.set_param(EnvParam::ScreenOutput(false)).unwrap();
+    env.set_param(EnvParam::Threads(threads as u64)).unwrap();
+    env.set_param(EnvParam::ParallelDeterministic(false)).unwrap();
     let mut prob = Problem::new(&env, "ilp_mc").unwrap();
 
     let nodes = g.node_indices().enumerate().map(|(i, node)| (node, i)).collect::<BTreeMap<_, _>>();
@@ -182,6 +185,7 @@ fn tiptop(g: Graph<(), f32>,
           k: usize,
           eps: f64,
           delta: f64,
+          threads: usize,
           log: Logger)
           -> BTreeSet<NodeIndex> {
     let n: f64 = g.node_count() as f64;
@@ -205,7 +209,7 @@ fn tiptop(g: Graph<(), f32>,
         rr_sets.append(&mut next_sets);
 
         info!(log, "solving ip");
-        let seeds = ilp_mc(&g, &rr_sets, k, &log);
+        let seeds = ilp_mc(&g, &rr_sets, k, threads, &log);
         info!(log, "verifying solution");
         let (passed, eps_1, eps_2) = verify(&g,
                                             &seeds,
@@ -236,7 +240,7 @@ fn main() {
         .unwrap_or_else(|e| e.exit());
 
     if let Some(threads) = args.flag_threads {
-        rayon::initialize(rayon::Configuration::new().set_num_threads(threads)).unwrap();
+        rayon::initialize(rayon::Configuration::new().num_threads(threads)).unwrap();
     }
 
     let log =
@@ -256,6 +260,7 @@ fn main() {
                        args.arg_k,
                        args.arg_epsilon,
                        delta,
+                       args.flag_threads.unwrap_or(1),
                        log.new(o!("section" => "tiptop")));
     info!(log, "optimal solution"; "seeds" => json_string(&seeds.into_iter().map(|node| node.index()).collect::<Vec<_>>()).unwrap());
 }
