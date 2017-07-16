@@ -79,12 +79,14 @@ fn ilp_mc(g: &Graph<(), f32>,
         })
         .collect::<Vec<_>>();
 
-    prob.add_constraint(con!("cardinality": (k as f64) >= sum s.iter())).unwrap();
+    #[allow(unused_parens)]
+    prob.add_constraint(con!("cardinality": (k as f64) >= sum (s.iter()))).unwrap();
 
     for (i, set) in rr_sets.iter().enumerate() {
         let y = prob.add_variable(var!((format!("y{}", i)) -> 1.0 as Binary)).unwrap();
         let els = set.iter().map(|node| s[nodes[node]]).collect::<Vec<_>>();
-        let mut con = con!((format!("rr{}", i)): 1.0 <= sum els.iter());
+        #[allow(unused_parens)]
+        let mut con = con!((format!("rr{}", i)): 1.0 <= sum (els.iter()));
         con.add_wvar(WeightedVariable::new_idx(y, 1.0));
         prob.add_constraint(con).unwrap();
     }
@@ -134,8 +136,8 @@ fn verify(g: &Graph<(), f32>,
             (0..step)
                 .into_par_iter()
                 .map(|_| match model {
-                    Model::IC => ris::IC::new_uniform(&g).collect(),
-                    Model::LT => ris::LT::new_uniform(&g).collect(),
+                    Model::IC => ris::IC::new_uniform(&g),
+                    Model::LT => ris::LT::new_uniform(&g),
                 })
                 .collect_into(&mut next_sets);
 
@@ -196,7 +198,7 @@ fn tiptop(g: Graph<(), f32>,
         let mut next_sets = Vec::with_capacity(nt - rr_sets.len());
         (0..nt - rr_sets.len())
             .into_par_iter()
-            .map(|_| IC::new_uniform(&g).collect())
+            .map(|_| IC::new_uniform(&g))
             .collect_into(&mut next_sets);
         rr_sets.append(&mut next_sets);
 
