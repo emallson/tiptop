@@ -34,12 +34,13 @@ const USAGE: &'static str = "
 Run the TipTop algorithm.
 
 Usage:
-    tiptop <graph> <model> <k> <epsilon> [<delta>] [--log <logfile>]
+    tiptop <graph> <model> <k> <epsilon> [<delta>] [--log <logfile>] [--threads <threads>]
     tiptop (-h | --help)
 
 Options:
-    -h --help           Show this screen.
-    --log <logfile>     Log to given file.
+    -h --help            Show this screen.
+    --log <logfile>      Log to given file.
+    --threads <threads>  Number of threads to use.
 ";
 
 #[derive(Debug, RustcDecodable)]
@@ -50,6 +51,7 @@ struct Args {
     arg_epsilon: f64,
     arg_delta: Option<f64>,
     flag_log: Option<String>,
+    flag_threads: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, RustcDecodable)]
@@ -232,6 +234,10 @@ fn main() {
     let args: Args = docopt::Docopt::new(USAGE)
         .and_then(|d| d.decode())
         .unwrap_or_else(|e| e.exit());
+
+    if let Some(threads) = args.flag_threads {
+        rayon::initialize(rayon::Configuration::new().set_num_threads(threads)).unwrap();
+    }
 
     let log =
         match args.flag_log {
