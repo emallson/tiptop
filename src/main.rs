@@ -7,13 +7,16 @@ extern crate capngraph;
 extern crate ris;
 extern crate bit_set;
 extern crate docopt;
-extern crate rustc_serialize;
 #[macro_use]
 extern crate slog;
 extern crate slog_stream;
 extern crate slog_term;
 extern crate slog_json;
+extern crate serde;
 extern crate serde_json;
+extern crate bincode;
+#[macro_use]
+extern crate serde_derive;
 
 #[cfg(test)]
 #[macro_use]
@@ -26,6 +29,8 @@ use rayon::prelude::*;
 use rplex::*;
 use slog::{Logger, DrainExt};
 use serde_json::to_string as json_string;
+use rand::distributions::{Weighted, WeightedChoice, IndependentSample};
+use bincode::{deserialize_from as bin_read_from, Infinite};
 
 use ris::*;
 
@@ -33,17 +38,27 @@ use ris::*;
 const USAGE: &'static str = "
 Run the TipTop algorithm.
 
+If <delta> is not given, 1/n is used as a default.
+
+If --costs are not given, then they are treated as uniformly 1.
+If --benefits are not given, then they are treated as uniformly 1.
+Thus, ommitting both is equivalent to the normal unweighted IM problem.
+
+See https://arxiv.org/abs/1701.08462 for the latest version of the paper.
+
 Usage:
-    tiptop <graph> <model> <k> <epsilon> [<delta>] [--log <logfile>] [--threads <threads>]
+    tiptop <graph> <model> <k> <epsilon> [<delta>] [options]
     tiptop (-h | --help)
 
 Options:
-    -h --help            Show this screen.
-    --log <logfile>      Log to given file.
-    --threads <threads>  Number of threads to use.
+    -h --help              Show this screen.
+    --log <logfile>        Log to given file.
+    --threads <threads>    Number of threads to use.
+    --costs <cost-file>    Node costs. Generated via the `build-data` binary.
+    --benefits <ben-file>  Node benefits. Generated via the `build-data` binary.
 ";
 
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Args {
     arg_graph: String,
     arg_model: Model,
@@ -52,20 +67,32 @@ struct Args {
     arg_delta: Option<f64>,
     flag_log: Option<String>,
     flag_threads: Option<usize>,
+    flag_costs: Option<String>,
+    flag_benefits: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, RustcDecodable)]
+type CostVec = Vec<u32>;
+type BenVec = Vec<u32>;
+type BenDist<'a> = WeightedChoice<'a, NodeIndex>;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum Model {
     IC,
     LT,
 }
 
-fn binom(n: usize, k: usize) -> f64 {
-    (1..k + 1).map(|i| (n + 1 - i) as f64 / i as f64).fold(1.0, |p, x| p * x)
+/// log(n choose k) computed using the sum form to avoid overflow.
+fn logbinom(n: usize, k: usize) -> f64 {
+    (1..(k + 1)).map(|i| ((n + 1 - i) as f64).ln() - (i as f64).ln()).sum()
 }
 
+/// Constructs and solves the IP given in eqn. (16)-(19) in the paper.
+///
+/// TODO: re-use prior solutions as a starting point, re-use previous construction (only adding new
+/// variables as needed, never removing as they are never removed).
 fn ilp_mc(g: &Graph<(), f32>,
           rr_sets: &Vec<BTreeSet<NodeIndex>>,
+          costs: &Option<CostVec>,
           k: usize,
           threads: usize,
           log: &Logger)
@@ -84,8 +111,14 @@ fn ilp_mc(g: &Graph<(), f32>,
         })
         .collect::<Vec<_>>();
 
+    // weights the seed variables by their cost (or 1.0 if no costs are given)
+    let weighted_s: Vec<_> =
+        costs.as_ref().map_or_else(|| s.iter().map(|&si| (si, 1.0)).collect(), |costs| {
+            s.iter().zip(costs).map(|(&si, &c)| (si, c as f64)).collect()
+        });
+    // constraint (17)
     #[allow(unused_parens)]
-    prob.add_constraint(con!("cardinality": (k as f64) >= sum (s.iter()))).unwrap();
+    prob.add_constraint(con!("cardinality": (k as f64) >= wsum (&weighted_s))).unwrap();
 
     for (i, set) in rr_sets.iter().enumerate() {
         let y = prob.add_variable(var!((format!("y{}", i)) -> 1.0 as Binary)).unwrap();
@@ -96,7 +129,6 @@ fn ilp_mc(g: &Graph<(), f32>,
         prob.add_constraint(con).unwrap();
     }
 
-    // TODO: confirm the switch from max to min
     prob.set_objective_type(ObjectiveType::Minimize).unwrap();
 
     let Solution { variables, .. } = prob.solve().unwrap();
@@ -109,9 +141,15 @@ fn ilp_mc(g: &Graph<(), f32>,
         .collect()
 }
 
+/// This function should *almost* exactly match Algorithm 2 given in
+/// [arXiv](http://arxiv.org/abs/1701.08462). The only difference is that we compute RR samples in
+/// batches and then process the samples in the batch in sequence. This makes much better use of
+/// multiprocessing.
 fn verify(g: &Graph<(), f32>,
           seeds: &BTreeSet<NodeIndex>,
           model: Model,
+          bens: &Option<BenVec>,
+          dist: &Option<BenDist>,
           eps: f64,
           delta: f64,
           b_r: f64,
@@ -126,6 +164,7 @@ fn verify(g: &Graph<(), f32>,
     let mut eps1 = std::f64::INFINITY;
     let mut eps2 = std::f64::INFINITY;
 
+    // for the sake of efficiency, we compute `step`
     let step = 10_000;
 
     for i in 0..v_max - 1 {
@@ -140,10 +179,7 @@ fn verify(g: &Graph<(), f32>,
             let mut next_sets = Vec::with_capacity(step);
             (0..step)
                 .into_par_iter()
-                .map(|_| match model {
-                    Model::IC => ris::IC::new_uniform(&g),
-                    Model::LT => ris::LT::new_uniform(&g),
-                })
+                .map(|_| rr_sample(&g, model, dist))
                 .collect_into(&mut next_sets);
 
             num_cov += cov(&next_sets, &seeds);
@@ -154,7 +190,9 @@ fn verify(g: &Graph<(), f32>,
             }
         }
 
-        let gamma = g.node_indices().count() as f64; // all benefits are 1
+        // gamma is either `n` (no benefits) or the sum of benefits
+        let gamma: f64 = bens.as_ref().map_or_else(|| g.node_count() as f64,
+                                                   |b| b.iter().map(|&b| b as f64).sum::<f64>());
         let b_ver = gamma * num_cov / rr_sets.len() as f64;
         eps1 = 1.0 - b_ver / b_r;
 
@@ -163,6 +201,8 @@ fn verify(g: &Graph<(), f32>,
             return (false, eps1, eps2);
         }
 
+        // NOTE: the use of the (undefined) \delta_1 is a typo. it should be \delta_2. Working on
+        // getting this fixed.
         let eps3 = ((3.0 * (t_max as f64 / delta2).ln()) / ((1.0 - eps1) * (1.0 - eps2) * num_cov))
             .sqrt();
 
@@ -176,11 +216,41 @@ fn verify(g: &Graph<(), f32>,
     return (false, eps1, eps2);
 }
 
+/// For a set of `q` RIS samples, returns `q' ≤ q` the number of samples that intersect with the
+/// solution. This is in effect applying line 8 of Alg 2. in arXiv to a size-`q` batch of samples.
 fn cov(rr_sets: &Vec<BTreeSet<NodeIndex>>, seeds: &BTreeSet<NodeIndex>) -> f64 {
     rr_sets.iter().map(|rr| rr.intersection(seeds).take(1).count() as f64).sum::<f64>()
 }
 
+/// Construct a reverse-reachable sample according to the BSA algorithm (see the SSA paper) under
+/// either the IC or LT model.
+///
+/// If no benefits are given, this does uniform sampling.
+///
+/// TODO: re-use rng object, also MT?
+fn rr_sample(g: &Graph<(), f32>,
+             model: Model,
+             weights: &Option<WeightedChoice<NodeIndex>>)
+             -> BTreeSet<NodeIndex> {
+    if let &Some(ref dist) = weights {
+        let v = dist.ind_sample(&mut rand::thread_rng());
+        match model {
+            Model::IC => IC::new(&g, v),
+            Model::LT => LT::new(&g, v),
+        }
+    } else {
+        match model {
+            Model::IC => IC::new_uniform(&g),
+            Model::LT => LT::new_uniform(&g),
+        }
+    }
+}
+
+/// The core method of the paper. As much as possible, variables and methods are named to match
+/// those of the paper to ease verification of the code.
 fn tiptop(g: Graph<(), f32>,
+          costs: Option<CostVec>,
+          benefits: Option<BenVec>,
           model: Model,
           k: usize,
           eps: f64,
@@ -195,25 +265,30 @@ fn tiptop(g: Graph<(), f32>,
     let t_max = (2.0 * (n / eps).ln()).ceil();
     let v_max: u32 = 6;
     let lam_max = (1.0 + eps) * (2.0 + 2.0 / 3.0 * eps) * 2.0 * eps.powi(-2) *
-                  ((2.0 / (delta / 4.0)).ln() + binom(n as usize, k).ln());
+                  ((2.0 / (delta / 4.0)).ln() + logbinom(n as usize, k));
 
     let mut rr_sets: Vec<BTreeSet<NodeIndex>> = Vec::new();
+    let mut weights = benefits.as_ref().map(|b| benefit_distribution(&g, b));
+    let dist = weights.as_mut().map(|w| WeightedChoice::new(w));
     loop {
         let nt = (lambda * (eps * t).exp()) as usize;
         info!(log, "sampling more sets"; "total" => nt, "additional" => nt - rr_sets.len());
         let mut next_sets = Vec::with_capacity(nt - rr_sets.len());
         (0..nt - rr_sets.len())
             .into_par_iter()
-            .map(|_| IC::new_uniform(&g))
+            .map(|_| rr_sample(&g, model, &dist))
             .collect_into(&mut next_sets);
         rr_sets.append(&mut next_sets);
 
         info!(log, "solving ip");
-        let seeds = ilp_mc(&g, &rr_sets, k, threads, &log);
+        let seeds = ilp_mc(&g, &rr_sets, &costs, k, threads, &log);
         info!(log, "verifying solution");
+        #[allow(unused_variables)]
         let (passed, eps_1, eps_2) = verify(&g,
                                             &seeds,
                                             model,
+                                            &benefits,
+                                            &dist,
                                             eps,
                                             delta,
                                             cov(&rr_sets, &seeds) * n / rr_sets.len() as f64,
@@ -229,14 +304,28 @@ fn tiptop(g: Graph<(), f32>,
             info!(log, "coverage threshold exceeded");
             return seeds;
         }
+
+        // this part corresponds to Alg 3 (IncreaseSamples)
         let dt_max = (2.0 / eps).ceil();
-        t += dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps_2).powi(2).ln()).ceil()));
+        t += dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps).powi(2).ln()).ceil()));
     }
+}
+
+fn benefit_distribution(g: &Graph<(), f32>, benefits: &BenVec) -> Vec<Weighted<NodeIndex>> {
+    g.node_indices()
+        .zip(benefits.into_iter())
+        .map(|(node, &ben)| {
+            Weighted {
+                item: node,
+                weight: ben,
+            }
+        })
+        .collect()
 }
 
 fn main() {
     let args: Args = docopt::Docopt::new(USAGE)
-        .and_then(|d| d.decode())
+        .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
 
     if let Some(threads) = args.flag_threads {
@@ -255,7 +344,15 @@ fn main() {
 
     let g = capngraph::load_graph(args.arg_graph.as_str()).unwrap();
     let delta = args.arg_delta.unwrap_or(1.0 / g.node_count() as f64);
+    let costs = args.flag_costs
+        .as_ref()
+        .map(|path| bin_read_from(&mut File::open(path).unwrap(), Infinite).unwrap());
+    let bens = args.flag_benefits
+        .as_ref()
+        .map(|path| bin_read_from(&mut File::open(path).unwrap(), Infinite).unwrap());
     let seeds = tiptop(g,
+                       costs,
+                       bens,
                        args.arg_model,
                        args.arg_k,
                        args.arg_epsilon,
