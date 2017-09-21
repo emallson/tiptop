@@ -1,6 +1,8 @@
 extern crate rayon;
 extern crate rand;
+extern crate statrs;
 extern crate petgraph;
+extern crate vec_graph;
 #[macro_use]
 extern crate rplex;
 extern crate capngraph;
@@ -17,6 +19,7 @@ extern crate serde_json;
 extern crate bincode;
 #[macro_use]
 extern crate serde_derive;
+extern crate rand_mersenne_twister;
 
 #[cfg(test)]
 #[macro_use]
@@ -24,13 +27,18 @@ extern crate quickcheck;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use petgraph::prelude::*;
+use petgraph::visit::NodeCount;
+use vec_graph::{Graph, NodeIndex, EdgeIndex};
 use rayon::prelude::*;
 use rplex::*;
 use slog::{Logger, DrainExt};
 use serde_json::to_string as json_string;
-use rand::distributions::{Weighted, WeightedChoice, IndependentSample};
+use statrs::distribution::Categorical;
+use rand::Rng;
+use rand::distributions::IndependentSample;
+use rand_mersenne_twister::{MTRng64, mersenne};
 use bincode::{deserialize_from as bin_read_from, Infinite};
+use std::cell::RefCell;
 
 use ris::*;
 
@@ -56,6 +64,13 @@ Options:
     --threads <threads>    Number of threads to use.
     --costs <cost-file>    Node costs. Generated via the `build-data` binary.
     --benefits <ben-file>  Node benefits. Generated via the `build-data` binary.
+
+    --cov-jump <factor>    Check that Cov_R(S_k) ≥ Λ before attempting verification.
+                           This skips many early stages of verification where verify() 
+                           takes longer than solving the IP. While this is in effect,
+                           an additional <factor> samples are generated each round.
+                           After this condition is satisfied, IncreaseSamples() is used.
+                           Recommended <factor> is 0.2.
 ";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,17 +84,20 @@ struct Args {
     flag_threads: Option<usize>,
     flag_costs: Option<String>,
     flag_benefits: Option<String>,
+    flag_cov_jump: Option<f64>,
 }
 
-type CostVec = Vec<u32>;
-type BenVec = Vec<u32>;
-type BenDist<'a> = WeightedChoice<'a, NodeIndex>;
+type CostVec = Vec<f64>;
+type BenVec = Vec<f64>;
+type BenDist = Categorical;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum Model {
     IC,
     LT,
 }
+
+thread_local!(static RNG: RefCell<MTRng64> = RefCell::new(mersenne()));
 
 /// log(n choose k) computed using the sum form to avoid overflow.
 fn logbinom(n: usize, k: usize) -> f64 {
@@ -123,9 +141,9 @@ fn ilp_mc(g: &Graph<(), f32>,
     for (i, set) in rr_sets.iter().enumerate() {
         let y = prob.add_variable(var!((format!("y{}", i)) -> 1.0 as Binary)).unwrap();
         let els = set.iter().map(|node| s[nodes[node]]).collect::<Vec<_>>();
+        // constraint (18)
         #[allow(unused_parens)]
-        let mut con = con!((format!("rr{}", i)): 1.0 <= sum (els.iter()));
-        con.add_wvar(WeightedVariable::new_idx(y, 1.0));
+        let con = con!((format!("rr{}", i)): 1.0 <= 1.0 y + sum (&els));
         prob.add_constraint(con).unwrap();
     }
 
@@ -148,7 +166,7 @@ fn ilp_mc(g: &Graph<(), f32>,
 fn verify(g: &Graph<(), f32>,
           seeds: &BTreeSet<NodeIndex>,
           model: Model,
-          bens: &Option<BenVec>,
+          gamma: f64,
           dist: &Option<BenDist>,
           eps: f64,
           delta: f64,
@@ -164,7 +182,7 @@ fn verify(g: &Graph<(), f32>,
     let mut eps1 = std::f64::INFINITY;
     let mut eps2 = std::f64::INFINITY;
 
-    // for the sake of efficiency, we compute `step`
+    // for the sake of efficiency, we compute batches of size `step`
     let step = 10_000;
 
     for i in 0..v_max - 1 {
@@ -174,12 +192,12 @@ fn verify(g: &Graph<(), f32>,
         let lam2 =
             1.0 + (2.0 + 2.0 / 3.0 * eps2p) * (1.0 + eps2p) * (2.0 / delta2p).ln() * eps2p.powi(-2);
 
-        info!(log, "boosting coverage"; "cov" => num_cov, "λ₂" => lam2);
         while num_cov < lam2 {
+            // info!(log, "boosting coverage"; "cov" => num_cov, "λ₂" => lam2);
             let mut next_sets = Vec::with_capacity(step);
             (0..step)
                 .into_par_iter()
-                .map(|_| rr_sample(&g, model, dist))
+                .map(move |_| RNG.with(|r| rr_sample(&mut *r.borrow_mut(), &g, model, dist)))
                 .collect_into(&mut next_sets);
 
             num_cov += cov(&next_sets, &seeds);
@@ -190,9 +208,6 @@ fn verify(g: &Graph<(), f32>,
             }
         }
 
-        // gamma is either `n` (no benefits) or the sum of benefits
-        let gamma: f64 = bens.as_ref().map_or_else(|| g.node_count() as f64,
-                                                   |b| b.iter().map(|&b| b as f64).sum::<f64>());
         let b_ver = gamma * num_cov / rr_sets.len() as f64;
         eps1 = 1.0 - b_ver / b_r;
 
@@ -228,20 +243,23 @@ fn cov(rr_sets: &Vec<BTreeSet<NodeIndex>>, seeds: &BTreeSet<NodeIndex>) -> f64 {
 /// If no benefits are given, this does uniform sampling.
 ///
 /// TODO: re-use rng object, also MT?
-fn rr_sample(g: &Graph<(), f32>,
-             model: Model,
-             weights: &Option<WeightedChoice<NodeIndex>>)
-             -> BTreeSet<NodeIndex> {
+fn rr_sample<R: Rng>(rng: &mut R,
+                     g: &Graph<(), f32>,
+                     model: Model,
+                     weights: &Option<BenDist>)
+                     -> BTreeSet<NodeIndex> {
     if let &Some(ref dist) = weights {
-        let v = dist.ind_sample(&mut rand::thread_rng());
+        let v = dist.ind_sample(rng);
+        assert_eq!(v, v.trunc());
+        let v = NodeIndex::new(v as usize);
         match model {
-            Model::IC => IC::new(&g, v),
-            Model::LT => LT::new(&g, v),
+            Model::IC => IC::new(rng, g, v),
+            Model::LT => LT::new(rng, g, v),
         }
     } else {
         match model {
-            Model::IC => IC::new_uniform(&g),
-            Model::LT => LT::new_uniform(&g),
+            Model::IC => IC::new_uniform_with(rng, g),
+            Model::LT => LT::new_uniform_with(rng, g),
         }
     }
 }
@@ -256,9 +274,14 @@ fn tiptop(g: Graph<(), f32>,
           eps: f64,
           delta: f64,
           threads: usize,
+          cov_jump: Option<f64>,
           log: Logger)
           -> BTreeSet<NodeIndex> {
+    let mut cov_jump_passed = false;
     let n: f64 = g.node_count() as f64;
+    // gamma is either `n` (no benefits) or the sum of benefits
+    let gamma: f64 = benefits.as_ref().map_or_else(|| g.node_count() as f64,
+                                                   |b| b.iter().map(|&b| b as f64).sum::<f64>());
     let lambda = (1.0 + eps) * (2.0 + 2.0 / 3.0 * eps) * eps.powi(-2) * (2.0 / delta).ln();
     let mut t = 1.0;
 
@@ -266,36 +289,50 @@ fn tiptop(g: Graph<(), f32>,
     let v_max: u32 = 6;
     let lam_max = (1.0 + eps) * (2.0 + 2.0 / 3.0 * eps) * 2.0 * eps.powi(-2) *
                   ((2.0 / (delta / 4.0)).ln() + logbinom(n as usize, k));
+    info!(log, "constants"; "Γ" => gamma, "Λ" => lambda, "Λ_max" => lam_max, "t_max" => t_max, "v_max" => 6);
 
     let mut rr_sets: Vec<BTreeSet<NodeIndex>> = Vec::new();
-    let mut weights = benefits.as_ref().map(|b| benefit_distribution(&g, b));
-    let dist = weights.as_mut().map(|w| WeightedChoice::new(w));
+    let dist = benefits.as_ref().map(|w| Categorical::new(w).unwrap());
     loop {
         let nt = (lambda * (eps * t).exp()) as usize;
         info!(log, "sampling more sets"; "total" => nt, "additional" => nt - rr_sets.len());
         let mut next_sets = Vec::with_capacity(nt - rr_sets.len());
         (0..nt - rr_sets.len())
             .into_par_iter()
-            .map(|_| rr_sample(&g, model, &dist))
+            .map(|_| RNG.with(|rng| rr_sample(&mut *rng.borrow_mut(), &g, model, &dist)))
             .collect_into(&mut next_sets);
         rr_sets.append(&mut next_sets);
 
         info!(log, "solving ip");
         let seeds = ilp_mc(&g, &rr_sets, &costs, k, threads, &log);
+        if !cov_jump_passed {
+            // check cov_jump, and possibly skip this round of verification
+            if let Some(factor) = cov_jump {
+                let covered = cov(&rr_sets, &seeds);
+                if covered >= lambda {
+                    cov_jump_passed = true;
+                    info!(log, "coverage condition passed, proceeding with verification"; "cov" => covered, "Λ" => lambda);
+                } else {
+                    t += (1.0 + factor).ln() / eps;
+                    info!(log, "coverage condition failed, skipping this round of verification"; "cov" => covered, "Λ" => lambda);
+                    continue;
+                }
+            }
+        }
+
         info!(log, "verifying solution");
-        #[allow(unused_variables)]
-        let (passed, eps_1, eps_2) = verify(&g,
-                                            &seeds,
-                                            model,
-                                            &benefits,
-                                            &dist,
-                                            eps,
-                                            delta,
-                                            cov(&rr_sets, &seeds) * n / rr_sets.len() as f64,
-                                            v_max as usize,
-                                            t_max as usize,
-                                            2usize.pow(v_max) * nt,
-                                            log.new(o!("section" => "verify")));
+        let (passed, eps_1, _) = verify(&g,
+                                        &seeds,
+                                        model,
+                                        gamma,
+                                        &dist,
+                                        eps,
+                                        delta,
+                                        cov(&rr_sets, &seeds) * gamma / rr_sets.len() as f64,
+                                        v_max as usize,
+                                        t_max as usize,
+                                        2usize.pow(v_max) * nt,
+                                        log.new(o!("section" => "verify")));
 
         if passed {
             info!(log, "solution passed");
@@ -304,23 +341,10 @@ fn tiptop(g: Graph<(), f32>,
             info!(log, "coverage threshold exceeded");
             return seeds;
         }
-
         // this part corresponds to Alg 3 (IncreaseSamples)
         let dt_max = (2.0 / eps).ceil();
         t += dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps).powi(2).ln()).ceil()));
     }
-}
-
-fn benefit_distribution(g: &Graph<(), f32>, benefits: &BenVec) -> Vec<Weighted<NodeIndex>> {
-    g.node_indices()
-        .zip(benefits.into_iter())
-        .map(|(node, &ben)| {
-            Weighted {
-                item: node,
-                weight: ben,
-            }
-        })
-        .collect()
 }
 
 fn main() {
@@ -342,14 +366,24 @@ fn main() {
             }
         };
 
-    let g = capngraph::load_graph(args.arg_graph.as_str()).unwrap();
+    info!(log, "loading graph"; "path" => args.arg_graph);
+    let g = Graph::from_edges(capngraph::load_edges(args.arg_graph.as_str()).unwrap());
     let delta = args.arg_delta.unwrap_or(1.0 / g.node_count() as f64);
-    let costs = args.flag_costs
+    let costs: Option<CostVec> = args.flag_costs
         .as_ref()
         .map(|path| bin_read_from(&mut File::open(path).unwrap(), Infinite).unwrap());
-    let bens = args.flag_benefits
+    let bens: Option<BenVec> = args.flag_benefits
         .as_ref()
         .map(|path| bin_read_from(&mut File::open(path).unwrap(), Infinite).unwrap());
+
+    if let Some(ref c) = costs {
+        assert_eq!(c.len(), g.node_count());
+    }
+
+    if let Some(ref b) = bens {
+        assert_eq!(b.len(), g.node_count());
+    }
+
     let seeds = tiptop(g,
                        costs,
                        bens,
@@ -358,6 +392,26 @@ fn main() {
                        args.arg_epsilon,
                        delta,
                        args.flag_threads.unwrap_or(1),
+                       args.flag_cov_jump,
                        log.new(o!("section" => "tiptop")));
     info!(log, "optimal solution"; "seeds" => json_string(&seeds.into_iter().map(|node| node.index()).collect::<Vec<_>>()).unwrap());
+}
+
+#[cfg(test)]
+mod test {
+    use rand::thread_rng;
+    use rand::distributions::IndependentSample;
+    use statrs::distribution::Categorical;
+
+    #[test]
+    fn confirm_categorical() {
+        // simple test to confirm 100% that categorical distribution works as intended.
+        let c = Categorical::new(&[1.0, 2.0, 1.0, 1.0]).unwrap();
+        for _ in 0..1000 {
+            let i = c.ind_sample(&mut thread_rng());
+            println!("{} {} {}", i, i.trunc(), i as usize);
+            assert_eq!(i, i.trunc());
+            assert_eq!(i.trunc() as usize, i as usize);
+        }
+    }
 }

@@ -18,6 +18,7 @@ slog = "1.5.2"
 slog-json = "1.2.1"
 slog-stream = "1.2.0"
 slog-term = "1.5.0"
+statrs = "0.8.0"
 
 [dependencies.capngraph]
 git = "https://github.com/emallson/capngraph.git"
@@ -25,15 +26,27 @@ optional = false
 
 [dependencies.petgraph]
 features = ["quickcheck"]
-version = "0.4.3"
+version = "0.4.7"
+
+[dependencies.rand-mersenne-twister]
+git = "https://github.com/emallson/rust-mersenne-twister.git"
+optional = false
 
 [dependencies.ris]
 git = "https://github.com/emallson/ris.rs.git"
 optional = false
+features = ["hash"]
 
 [dependencies.rplex]
 git = "https://github.com/emallson/rplex.git"
 optional = false
 
+[dependencies.vec-graph]
+git = "https://github.com/emallson/vec-graph.git"
+optional = false
+
 [dev-dependencies]
 quickcheck = "0.4.1"
+
+[profile.release]
+debug = true
