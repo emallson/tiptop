@@ -7,6 +7,8 @@ Sampling is done using [this library](https://github.com/emallson/ris.rs)
 and solving is done with CPLEX via [this
 library](https://github.com/emallson/rplex).
 
+*This is not the canonical/reference implementation!*
+
 ## Input Format
 
 The graph input is expected to be in
