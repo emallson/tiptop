@@ -222,7 +222,7 @@ fn verify(g: &Graph<(), f32>,
             .sqrt();
 
         if (1.0 - eps1) * (1.0 - eps2) * (1.0 - eps3) > (1.0 - eps) {
-            info!(log, "verification succeeded");
+            info!(log, "verification succeeded"; "ε₁" => eps1, "ε₂" => eps2, "ε₃" => eps3, "ε" => eps, "product" => (1.0 - eps1) * (1.0 - eps2) * (1.0 - eps3));
             return (true, eps1, eps2);
         }
     }
@@ -295,7 +295,7 @@ fn tiptop(g: Graph<(), f32>,
     let dist = benefits.as_ref().map(|w| Categorical::new(w).unwrap());
     loop {
         let nt = (lambda * (eps * t).exp()) as usize;
-        info!(log, "sampling more sets"; "total" => nt, "additional" => nt - rr_sets.len());
+        info!(log, "sampling more sets"; "total" => nt, "additional" => nt - rr_sets.len(), "t" => t);
         let mut next_sets = Vec::with_capacity(nt - rr_sets.len());
         (0..nt - rr_sets.len())
             .into_par_iter()
