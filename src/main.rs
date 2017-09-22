@@ -342,7 +342,7 @@ fn main() {
 
     let log =
         match args.flag_log {
-            Some(filename) => slog::Logger::root(slog::Duplicate::new(slog_term::streamer().color().compact().build(),
+            Some(ref filename) => slog::Logger::root(slog::Duplicate::new(slog_term::streamer().color().compact().build(),
                                                                   slog_stream::stream(File::create(filename).unwrap(), slog_json::default())).fuse(), o!("version" => env!("CARGO_PKG_VERSION"))),
             None => {
                 slog::Logger::root(slog_term::streamer().color().compact().build().fuse(),
@@ -350,6 +350,7 @@ fn main() {
             }
         };
 
+    info!(log, "parameters"; "args" => json_string(&args).unwrap());
     info!(log, "loading graph"; "path" => args.arg_graph);
     let g = Graph::from_edges(capngraph::load_edges(args.arg_graph.as_str()).unwrap());
     let delta = args.arg_delta.unwrap_or(1.0 / g.node_count() as f64);
