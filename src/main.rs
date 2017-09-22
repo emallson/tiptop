@@ -204,7 +204,10 @@ fn verify(g: &Graph<(), f32>,
             rr_sets.append(&mut next_sets);
             if rr_sets.len() > tcap {
                 info!(log, "T_cap exceeded"; "tcap" => tcap);
-                return (false, eps1, 2.0 * eps2);
+                info!(log, "verification samples"; "samples" => rr_sets.len());
+                // we return infty to avoid the "t = t + 1" issue where eps1 is overwritten by the
+                // below code
+                return (false, std::f64::INFINITY, 2.0 * eps2);
             }
         }
 
@@ -213,6 +216,7 @@ fn verify(g: &Graph<(), f32>,
 
         if eps1 > eps {
             info!(log, "eps1 > eps"; "eps1" => eps1, "eps" => eps);
+            info!(log, "verification samples"; "samples" => rr_sets.len());
             return (false, eps1, eps2);
         }
 
@@ -223,11 +227,13 @@ fn verify(g: &Graph<(), f32>,
 
         if (1.0 - eps1) * (1.0 - eps2) * (1.0 - eps3) > (1.0 - eps) {
             info!(log, "verification succeeded"; "ε₁" => eps1, "ε₂" => eps2, "ε₃" => eps3, "ε" => eps, "product" => (1.0 - eps1) * (1.0 - eps2) * (1.0 - eps3));
+            info!(log, "verification samples"; "samples" => rr_sets.len());
             return (true, eps1, eps2);
         }
     }
 
     info!(log, "iteration limit exceeded");
+    info!(log, "verification samples"; "samples" => rr_sets.len());
     return (false, eps1, eps2);
 }
 
@@ -343,7 +349,11 @@ fn tiptop(g: Graph<(), f32>,
         }
         // this part corresponds to Alg 3 (IncreaseSamples)
         let dt_max = (2.0 / eps).ceil();
-        t += dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps).powi(2).ln()).ceil()));
+        if eps_1.is_finite() {
+            t += dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps).powi(2).ln()).ceil()));
+        } else {
+            t += dt_max;
+        }
     }
 }
 
