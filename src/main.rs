@@ -64,13 +64,6 @@ Options:
     --threads <threads>    Number of threads to use.
     --costs <cost-file>    Node costs. Generated via the `build-data` binary.
     --benefits <ben-file>  Node benefits. Generated via the `build-data` binary.
-
-    --cov-jump <factor>    Check that Cov_R(S_k) ≥ Λ before attempting verification.
-                           This skips many early stages of verification where verify() 
-                           takes longer than solving the IP. While this is in effect,
-                           an additional <factor> samples are generated each round.
-                           After this condition is satisfied, IncreaseSamples() is used.
-                           Recommended <factor> is 0.2.
 ";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,7 +77,6 @@ struct Args {
     flag_threads: Option<usize>,
     flag_costs: Option<String>,
     flag_benefits: Option<String>,
-    flag_cov_jump: Option<f64>,
 }
 
 type CostVec = Vec<f64>;
@@ -247,8 +239,6 @@ fn cov(rr_sets: &Vec<BTreeSet<NodeIndex>>, seeds: &BTreeSet<NodeIndex>) -> f64 {
 /// either the IC or LT model.
 ///
 /// If no benefits are given, this does uniform sampling.
-///
-/// TODO: re-use rng object, also MT?
 fn rr_sample<R: Rng>(rng: &mut R,
                      g: &Graph<(), f32>,
                      model: Model,
@@ -280,10 +270,8 @@ fn tiptop(g: Graph<(), f32>,
           eps: f64,
           delta: f64,
           threads: usize,
-          cov_jump: Option<f64>,
           log: Logger)
           -> BTreeSet<NodeIndex> {
-    let mut cov_jump_passed = false;
     let n: f64 = g.node_count() as f64;
     // gamma is either `n` (no benefits) or the sum of benefits
     let gamma: f64 = benefits.as_ref().map_or_else(|| g.node_count() as f64,
@@ -311,20 +299,6 @@ fn tiptop(g: Graph<(), f32>,
 
         info!(log, "solving ip");
         let seeds = ilp_mc(&g, &rr_sets, &costs, k, threads, &log);
-        if !cov_jump_passed {
-            // check cov_jump, and possibly skip this round of verification
-            if let Some(factor) = cov_jump {
-                let covered = cov(&rr_sets, &seeds);
-                if covered >= lambda {
-                    cov_jump_passed = true;
-                    info!(log, "coverage condition passed, proceeding with verification"; "cov" => covered, "Λ" => lambda);
-                } else {
-                    t += (1.0 + factor).ln() / eps;
-                    info!(log, "coverage condition failed, skipping this round of verification"; "cov" => covered, "Λ" => lambda);
-                    continue;
-                }
-            }
-        }
 
         info!(log, "verifying solution");
         let (passed, eps_1, _) = verify(&g,
@@ -402,7 +376,6 @@ fn main() {
                        args.arg_epsilon,
                        delta,
                        args.flag_threads.unwrap_or(1),
-                       args.flag_cov_jump,
                        log.new(o!("section" => "tiptop")));
     info!(log, "optimal solution"; "seeds" => json_string(&seeds.into_iter().map(|node| node.index()).collect::<Vec<_>>()).unwrap());
 }
