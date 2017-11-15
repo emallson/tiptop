@@ -168,14 +168,14 @@ fn verify(g: &Graph<(), f32>,
           tcap: usize,
           log: Logger)
           -> (bool, f64, f64) {
-    let mut rr_sets = Vec::new();
     let delta2 = delta / 4.0;
-    let mut num_cov = 0.0;
+    let mut num_cov = 0;
+    let mut num_sets = 0;
     let mut eps1 = std::f64::INFINITY;
     let mut eps2 = std::f64::INFINITY;
 
     // for the sake of efficiency, we compute batches of size `step`
-    let step = 10_000;
+    const STEP: usize = 10_000;
 
     for i in 0..v_max - 1 {
         eps2 = eps.min(1.0) / 2f64.powi(i as i32);
@@ -183,49 +183,50 @@ fn verify(g: &Graph<(), f32>,
         let delta2p = delta2 / (v_max as f64 * t_max as f64);
         let lam2 =
             1.0 + (2.0 + 2.0 / 3.0 * eps2p) * (1.0 + eps2p) * (2.0 / delta2p).ln() * eps2p.powi(-2);
+        let lam2 = lam2.ceil() as usize;
 
         while num_cov < lam2 {
             // info!(log, "boosting coverage"; "cov" => num_cov, "λ₂" => lam2);
-            let mut next_sets = Vec::with_capacity(step);
-            (0..step)
+            num_cov += (0..STEP)
                 .into_par_iter()
                 .map(move |_| RNG.with(|r| rr_sample(&mut *r.borrow_mut(), &g, model, dist)))
-                .collect_into(&mut next_sets);
+                .filter(|sample| sample.iter().any(|seed| seeds.contains(seed)))
+                .count();
+            num_sets += STEP;
 
-            num_cov += cov(&next_sets, &seeds);
-            rr_sets.append(&mut next_sets);
-            if rr_sets.len() > tcap {
+            if num_sets > tcap {
                 info!(log, "T_cap exceeded"; "tcap" => tcap);
-                info!(log, "verification samples"; "samples" => rr_sets.len());
+                info!(log, "verification samples"; "samples" => num_sets);
                 // we return infty to avoid the "t = t + 1" issue where eps1 is overwritten by the
                 // below code
                 return (false, std::f64::INFINITY, 2.0 * eps2);
             }
         }
 
-        let b_ver = gamma * num_cov / rr_sets.len() as f64;
+        let b_ver = gamma * num_cov as f64 / num_sets as f64;
         eps1 = 1.0 - b_ver / b_r;
 
         if eps1 > eps {
             info!(log, "eps1 > eps"; "eps1" => eps1, "eps" => eps);
-            info!(log, "verification samples"; "samples" => rr_sets.len());
+            info!(log, "verification samples"; "samples" => num_sets);
             return (false, eps1, eps2);
         }
 
         // NOTE: the use of the (undefined) \delta_1 is a typo. it should be \delta_2. Working on
         // getting this fixed.
-        let eps3 = ((3.0 * (t_max as f64 / delta2).ln()) / ((1.0 - eps1) * (1.0 - eps2) * num_cov))
+        let eps3 = ((3.0 * (t_max as f64 / delta2).ln()) /
+                    ((1.0 - eps1) * (1.0 - eps2) * num_cov as f64))
             .sqrt();
 
         if (1.0 - eps1) * (1.0 - eps2) * (1.0 - eps3) > (1.0 - eps) {
             info!(log, "verification succeeded"; "ε₁" => eps1, "ε₂" => eps2, "ε₃" => eps3, "ε" => eps, "product" => (1.0 - eps1) * (1.0 - eps2) * (1.0 - eps3));
-            info!(log, "verification samples"; "samples" => rr_sets.len());
+            info!(log, "verification samples"; "samples" => num_sets);
             return (true, eps1, eps2);
         }
     }
 
     info!(log, "iteration limit exceeded");
-    info!(log, "verification samples"; "samples" => rr_sets.len());
+    info!(log, "verification samples"; "samples" => num_sets);
     return (false, eps1, eps2);
 }
 

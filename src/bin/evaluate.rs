@@ -155,8 +155,8 @@ fn evaluate(g: &Graph<(), f32>,
         num_cov += (0..STEP)
             .into_par_iter()
             .map(move |_| RNG.with(|r| rr_sample(&mut *r.borrow_mut(), g, model, dr)))
-            .map(|rr| rr.intersection(seeds).take(1).count())
-            .sum::<usize>();
+            .filter(|rr| rr.iter().any(|seed| seeds.contains(seed)))
+            .count();
         num_sets += STEP;
     }
     info!(log, "verification complete"; "Λ₂" => lam2, "covered" => num_cov, "samples generated" => num_sets);
@@ -186,6 +186,7 @@ fn main() {
     info!(log, "loading graph"; "path" => args.arg_graph);
     let g = Graph::oriented_from_edges(capngraph::load_edges(args.arg_graph.as_str()).unwrap(),
                                        petgraph::Incoming);
+    info!(log, "loaded graph");
     let delta = args.arg_delta.unwrap_or(1.0 / g.node_count() as f64);
     let bens: Option<BenVec> = args.flag_benefits
         .as_ref()
