@@ -352,7 +352,8 @@ fn main() {
 
     info!(log, "parameters"; "args" => json_string(&args).unwrap());
     info!(log, "loading graph"; "path" => args.arg_graph);
-    let g = Graph::from_edges(capngraph::load_edges(args.arg_graph.as_str()).unwrap());
+    let g = Graph::oriented_from_edges(capngraph::load_edges(args.arg_graph.as_str()).unwrap(),
+                                       petgraph::Incoming);
     let delta = args.arg_delta.unwrap_or(1.0 / g.node_count() as f64);
     let costs: Option<CostVec> = args.flag_costs
         .as_ref()

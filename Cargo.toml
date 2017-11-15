@@ -34,6 +34,7 @@ optional = false
 
 [dependencies.ris]
 git = "https://github.com/emallson/ris.rs.git"
+# branch = "hyper"
 optional = false
 features = ["hash"]
 
@@ -43,6 +44,7 @@ optional = false
 
 [dependencies.vec-graph]
 git = "https://github.com/emallson/vec-graph.git"
+# branch = "hyper"
 optional = false
 
 [dev-dependencies]

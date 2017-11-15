@@ -451,7 +451,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "ris"
 version = "0.1.0"
-source = "git+https://github.com/emallson/ris.rs.git#d4aec8b8392bb68b3c4af7bd03f6d17601792c45"
+source = "git+https://github.com/emallson/ris.rs.git#95d094fa14288b9e98f02de7b81efe5f876a1ec9"
 dependencies = [
  "as_num 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-set 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -722,7 +722,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "vec-graph"
 version = "0.1.0"
-source = "git+https://github.com/emallson/vec-graph.git#c644c450db7914e8f9f715116e55d50fff7b43b9"
+source = "git+https://github.com/emallson/vec-graph.git#965dc3b96e45748a2d00ff86bcb21526ab25ccee"
 dependencies = [
  "fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "petgraph 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
