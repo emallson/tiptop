@@ -8,6 +8,7 @@ bincode = "0.8.0"
 bit-set = "0.4.0"
 docopt = "0.8"
 lazy_static = "0.2.2"
+nom = "3.2.1"
 rand = "0.3.15"
 rayon = "0.8.2"
 rustc-serialize = "0.3.22"
@@ -33,10 +34,9 @@ git = "https://github.com/emallson/rust-mersenne-twister.git"
 optional = false
 
 [dependencies.ris]
-git = "https://github.com/emallson/ris.rs.git"
-# branch = "hyper"
-optional = false
 features = ["hash"]
+git = "https://github.com/emallson/ris.rs.git"
+optional = false
 
 [dependencies.rplex]
 git = "https://github.com/emallson/rplex.git"
@@ -44,11 +44,12 @@ optional = false
 
 [dependencies.vec-graph]
 git = "https://github.com/emallson/vec-graph.git"
-# branch = "hyper"
 optional = false
 
 [dev-dependencies]
 quickcheck = "0.4.1"
+
+[profile]
 
 [profile.release]
 debug = true
