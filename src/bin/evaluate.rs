@@ -158,8 +158,8 @@ fn evaluate(g: &Graph<(), f32>,
             .map(|rr| rr.intersection(seeds).take(1).count())
             .sum::<usize>();
         num_sets += STEP;
-        info!(log, "adding samples..."; "Λ₂" => lam2, "covered" => num_cov, "samples generated" => num_sets);
     }
+    info!(log, "verification complete"; "Λ₂" => lam2, "covered" => num_cov, "samples generated" => num_sets);
     n * (num_cov as f64 / num_sets as f64)
 }
 
