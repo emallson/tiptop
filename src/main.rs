@@ -105,6 +105,7 @@ fn ilp_mc(g: &Graph<(), f32>,
           costs: &Option<CostVec>,
           k: usize,
           threads: usize,
+          prev: Option<BTreeSet<NodeIndex>>,
           log: &Logger)
           -> BTreeSet<NodeIndex> {
     let mut env = Env::new().unwrap();
@@ -113,6 +114,7 @@ fn ilp_mc(g: &Graph<(), f32>,
     env.set_param(EnvParam::ParallelDeterministic(false)).unwrap();
     let mut prob = Problem::new(&env, "ilp_mc").unwrap();
 
+    info!(log, "building IP variables");
     let nodes = g.node_indices().enumerate().map(|(i, node)| (node, i)).collect::<BTreeMap<_, _>>();
     let inv = g.node_indices().collect::<Vec<_>>();
     let s = g.node_indices()
@@ -121,6 +123,7 @@ fn ilp_mc(g: &Graph<(), f32>,
         })
         .collect::<Vec<_>>();
 
+    info!(log, "building IP constraints");
     // weights the seed variables by their cost (or 1.0 if no costs are given)
     let weighted_s: Vec<_> =
         costs.as_ref().map_or_else(|| s.iter().map(|&si| (si, 1.0)).collect(), |costs| {
@@ -141,8 +144,16 @@ fn ilp_mc(g: &Graph<(), f32>,
 
     prob.set_objective_type(ObjectiveType::Minimize).unwrap();
 
+    if let Some(prev_sol) = prev {
+        let vars = prev_sol.iter().map(|i| nodes[i]).collect::<Vec<_>>();
+        let vals = vec![1.0; vars.len()];
+        prob.add_initial_soln(&vars, &vals).unwrap();
+    }
+
+    info!(log, "solving IP");
     let Solution { variables, .. } = prob.solve().unwrap();
 
+    info!(log, "IP solution found");
     s.iter()
         .filter_map(|&i| match variables[i] {
             VariableValue::Binary(b) => if b { Some(inv[i]) } else { None },
@@ -279,6 +290,10 @@ fn tiptop(g: Graph<(), f32>,
                                                    |b| b.iter().map(|&b| b as f64).sum::<f64>());
     let lambda = (1.0 + eps) * (2.0 + 2.0 / 3.0 * eps) * eps.powi(-2) * (2.0 / delta).ln();
     let mut t = 1.0;
+    let dt_max = (2.0 / eps).ceil();
+    let mut dt_prev = None; // tracks the most recent dt that did not correspond to an infinite epsilon_1.
+
+    let mut prev_soln = None;
 
     let t_max = (2.0 * (n / eps).ln()).ceil();
     let v_max: u32 = 6;
@@ -299,7 +314,7 @@ fn tiptop(g: Graph<(), f32>,
         rr_sets.append(&mut next_sets);
 
         info!(log, "solving ip");
-        let seeds = ilp_mc(&g, &rr_sets, &costs, k, threads, &log);
+        let seeds = ilp_mc(&g, &rr_sets, &costs, k, threads, prev_soln, &log);
 
         info!(log, "verifying solution");
         let (passed, eps_1, _) = verify(&g,
@@ -322,10 +337,14 @@ fn tiptop(g: Graph<(), f32>,
             info!(log, "coverage threshold exceeded");
             return seeds;
         }
+        prev_soln = Some(seeds);
         // this part corresponds to Alg 3 (IncreaseSamples)
-        let dt_max = (2.0 / eps).ceil();
         if eps_1.is_finite() {
-            t += dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps).powi(2).ln()).ceil()));
+            let dt = dt_max.min(1f64.max(((1.0 / eps) * (eps_1 / eps).powi(2).ln()).ceil()));
+            dt_prev = Some(dt);
+            t += dt;
+        } else if let Some(dt) = dt_prev {
+            t += dt;
         } else {
             t += dt_max;
         }
