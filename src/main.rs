@@ -109,7 +109,7 @@ fn ilp_mc(g: &Graph<(), f32>,
           log: &Logger)
           -> BTreeSet<NodeIndex> {
     let mut env = Env::new().unwrap();
-    env.set_param(EnvParam::ScreenOutput(false)).unwrap();
+    env.set_param(EnvParam::ScreenOutput(true)).unwrap();
     env.set_param(EnvParam::Threads(threads as u64)).unwrap();
     env.set_param(EnvParam::ParallelDeterministic(false)).unwrap();
     let mut prob = Problem::new(&env, "ilp_mc").unwrap();
@@ -145,7 +145,7 @@ fn ilp_mc(g: &Graph<(), f32>,
     prob.set_objective_type(ObjectiveType::Minimize).unwrap();
 
     if let Some(prev_sol) = prev {
-        let vars = prev_sol.iter().map(|i| nodes[i]).collect::<Vec<_>>();
+        let vars = prev_sol.iter().map(|i| s[nodes[i]]).collect::<Vec<_>>();
         let vals = vec![1.0; vars.len()];
         prob.add_initial_soln(&vars, &vals).unwrap();
     }
@@ -210,7 +210,7 @@ fn verify(g: &Graph<(), f32>,
                 info!(log, "verification samples"; "samples" => num_sets);
                 // we return infty to avoid the "t = t + 1" issue where eps1 is overwritten by the
                 // below code
-                return (false, std::f64::INFINITY, 2.0 * eps2);
+                return (false, eps1, 2.0 * eps2);
             }
         }
 
