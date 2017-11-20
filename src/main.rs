@@ -3,6 +3,7 @@ extern crate rand;
 extern crate statrs;
 extern crate petgraph;
 extern crate vec_graph;
+#[cfg(not(feature = "grb"))]
 #[macro_use]
 extern crate rplex;
 extern crate capngraph;
@@ -25,11 +26,15 @@ extern crate rand_mersenne_twister;
 #[macro_use]
 extern crate quickcheck;
 
+#[cfg(feature = "grb")]
+extern crate gurobi;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use petgraph::visit::NodeCount;
 use vec_graph::{Graph, NodeIndex, EdgeIndex};
 use rayon::prelude::*;
+#[cfg(not(feature = "grb"))]
 use rplex::*;
 use slog::{Logger, DrainExt};
 use serde_json::to_string as json_string;
@@ -96,6 +101,52 @@ fn logbinom(n: usize, k: usize) -> f64 {
     (1..(k + 1)).map(|i| ((n + 1 - i) as f64).ln() - (i as f64).ln()).sum()
 }
 
+#[cfg(feature = "grb")]
+fn ilp_mc(g: &Graph<(), f32>,
+          rr_sets: &Vec<BTreeSet<NodeIndex>>,
+          costs: &Option<CostVec>,
+          k: usize,
+          threads: usize,
+          prev: Option<BTreeSet<NodeIndex>>,
+          log: &Logger)
+          -> BTreeSet<NodeIndex> {
+    use gurobi::*;
+    let mut env = Env::new();
+    env.set_threads(threads).unwrap();
+    let mut model = Model::new(&env).unwrap();
+
+    info!(log, "building IP variables");
+    let nodes = g.node_indices().enumerate().map(|(i, node)| (node, i)).collect::<BTreeMap<_, _>>();
+    let inv = g.node_indices().collect::<Vec<_>>();
+    let s = g.node_indices()
+        .map(|_| model.add_var(0.0, VariableType::Binary).unwrap())
+        .collect::<Vec<_>>();
+
+    info!(log, "building IP constraints");
+    // constraint (17): cardinality
+    model.add_con(costs.as_ref()
+            .map(|c| Constraint::build().weighted_sum(&s, c).is_less_than(k as f64))
+            .unwrap_or_else(|| Constraint::build().sum(&s).is_less_than(k as f64)))
+        .unwrap();
+
+    for (i, set) in rr_sets.iter().enumerate() {
+        let y = model.add_var(1.0, VariableType::Binary).unwrap();
+        let els = set.iter().map(|node| s[nodes[node]]);
+        model.add_con(Constraint::build().sum(els).plus(y, 1.0).is_greater_than(1.0))
+            .unwrap();
+    }
+
+    model.set_objective_type(ObjectiveType::Minimize).unwrap();
+    let sol = model.optimize().unwrap();
+    sol.variables(s[0], s[s.len() - 1])
+        .unwrap()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &f)| if f == 1.0 { Some(inv[i]) } else { None })
+        .collect()
+}
+
+#[cfg(not(feature = "grb"))]
 /// Constructs and solves the IP given in eqn. (16)-(19) in the paper.
 ///
 /// TODO: re-use prior solutions as a starting point, re-use previous construction (only adding new

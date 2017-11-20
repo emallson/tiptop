@@ -3,6 +3,11 @@ authors = ["J David Smith <emallson@atlanis.net>"]
 name = "tiptop"
 version = "0.1.0"
 
+[features]
+default = ["cplex"]
+grb = ["gurobi"]
+cplex = ["rplex"]
+
 [dependencies]
 bincode = "0.8.0"
 bit-set = "0.4.0"
@@ -41,11 +46,15 @@ optional = false
 [dependencies.rplex]
 git = "https://github.com/emallson/rplex.git"
 version = "0.2.3"
-optional = false
+optional = true
 
 [dependencies.vec-graph]
 git = "https://github.com/emallson/vec-graph.git"
 optional = false
+
+[dependencies.gurobi]
+git = "https://github.com/emallson/gurobi.rs.git"
+optional = true
 
 [dev-dependencies]
 quickcheck = "0.4.1"
