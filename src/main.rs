@@ -137,6 +137,14 @@ fn ilp_mc(g: &Graph<(), f32>,
     }
 
     model.set_objective_type(ObjectiveType::Minimize).unwrap();
+
+    if let Some(prev_sol) = prev {
+        let vals = inv.iter()
+            .map(|node| if prev_sol.contains(node) { 1.0 } else { 0.0 })
+            .collect::<Vec<_>>();
+        model.initial_values_range(s[0], s[s.len() - 1], &vals).unwrap();
+    }
+
     let sol = model.optimize().unwrap();
     sol.variables(s[0], s[s.len() - 1])
         .unwrap()
@@ -186,10 +194,9 @@ fn ilp_mc(g: &Graph<(), f32>,
 
     for (i, set) in rr_sets.iter().enumerate() {
         let y = prob.add_variable(var!((format!("y{}", i)) -> 1.0 as Binary)).unwrap();
-        let els = set.iter().map(|node| s[nodes[node]]).collect::<Vec<_>>();
+        let els = set.iter().map(|node| &s[nodes[node]]);
         // constraint (18)
-        #[allow(unused_parens)]
-        let con = con!((format!("rr{}", i)): 1.0 <= 1.0 y + sum (&els));
+        let con = con!((format!("rr{}", i)): 1.0 <= 1.0 y + sum els);
         prob.add_constraint(con).unwrap();
     }
 

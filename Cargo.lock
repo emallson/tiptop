@@ -229,7 +229,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "gurobi"
 version = "0.1.0"
-source = "git+https://github.com/emallson/gurobi.rs.git#11570e93d42fcd08ff4ae6a695413f212a5e2d2d"
+source = "git+https://github.com/emallson/gurobi.rs.git#550f855434d117912b113c68484ac65f0cb1f2da"
 dependencies = [
  "glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.33 (registry+https://github.com/rust-lang/crates.io-index)",
