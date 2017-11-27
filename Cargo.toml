@@ -4,7 +4,7 @@ name = "tiptop"
 version = "0.1.0"
 
 [features]
-default = ["cplex"]
+default = ["grb"]
 grb = ["gurobi"]
 cplex = ["rplex"]
 

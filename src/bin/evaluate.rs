@@ -192,11 +192,13 @@ fn main() {
         .as_ref()
         .map(|path| bin_read_from(&mut File::open(path).unwrap(), Infinite).unwrap());
 
+    info!(log, "loaded benefits");
     if let Some(ref b) = bens {
         assert_eq!(b.len(), g.node_count());
     }
 
     let seeds = load_seeds(&args.arg_seeds);
+    info!(log, "loaded seeds");
 
     let influence = evaluate(&g,
                              bens,
