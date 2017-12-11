@@ -140,6 +140,7 @@ fn evaluate(g: &Graph<(), f32>,
     let mut num_sets: usize = 0;
     let n = g.node_count() as f64;
     let dist = bens.as_ref().map(|w| Categorical::new(w).unwrap());
+    let gamma = bens.as_ref().map(|w| w.iter().sum::<f64>()).unwrap_or(n);
     let dr = &dist;
 
     let eps2 = epsilon / 16.0;
@@ -160,7 +161,7 @@ fn evaluate(g: &Graph<(), f32>,
         num_sets += STEP;
     }
     info!(log, "verification complete"; "Λ₂" => lam2, "covered" => num_cov, "samples generated" => num_sets);
-    n * (num_cov as f64 / num_sets as f64)
+    gamma * (num_cov as f64 / num_sets as f64)
 }
 
 fn main() {
@@ -192,9 +193,9 @@ fn main() {
         .as_ref()
         .map(|path| bin_read_from(&mut File::open(path).unwrap(), Infinite).unwrap());
 
-    info!(log, "loaded benefits");
     if let Some(ref b) = bens {
         assert_eq!(b.len(), g.node_count());
+        info!(log, "loaded benefits");
     }
 
     let seeds = load_seeds(&args.arg_seeds);
