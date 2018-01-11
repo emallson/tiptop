@@ -64,7 +64,8 @@ fn main() {
 
     writeln!(writer, "{} {}", g.node_count(), g.edge_count()).unwrap();
 
-    for i in 0..g.node_count() {
+    // we skip 0 because that is a dummy node
+    for i in 1..g.node_count() {
         writeln!(writer, "{} {} {}", i, costs[i], benefits[i]).unwrap();
     }
 

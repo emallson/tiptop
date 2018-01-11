@@ -77,8 +77,12 @@ fn main() {
             .unwrap();
     } else if args.cmd_out_degree {
         let scale = |w: f64| {
-            let w = g.node_count() as f64 / g.edge_count() as f64 * w;
-            if args.flag_linear { w } else { w.ln() }
+            g.node_count() as f64 / g.edge_count() as f64 *
+            if args.flag_linear {
+                w
+            } else {
+                if w > 0.0 { w.ln() } else { 0.0 }
+            }
         };
         bincode::serialize_into(&mut out,
                                 &g.node_indices()
