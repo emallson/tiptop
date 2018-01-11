@@ -3,10 +3,19 @@ authors = ["J David Smith <emallson@atlanis.net>"]
 name = "tiptop"
 version = "0.1.0"
 
-[features]
-default = ["cplex"]
-grb = ["gurobi"]
-cplex = ["rplex"]
+[[bin]]
+name = "tiptop"
+path = "src/main.rs"
+
+[[bin]]
+name = "t-exact"
+path = "src/t-exact.rs"
+required-features = ["grb", "exact"]
+
+[[bin]]
+name = "e-exact"
+path = "src/e-exact.rs"
+required-features = ["grb", "exact"]
 
 [dependencies]
 bincode = "0.8.0"
@@ -30,6 +39,10 @@ statrs = "0.8.0"
 git = "https://github.com/emallson/capngraph.git"
 optional = false
 
+[dependencies.gurobi]
+git = "https://github.com/emallson/gurobi.rs.git"
+optional = true
+
 [dependencies.petgraph]
 features = ["quickcheck"]
 version = "0.4.7"
@@ -45,24 +58,26 @@ optional = false
 
 [dependencies.rplex]
 git = "https://github.com/emallson/rplex.git"
-version = "0.2.3"
 optional = true
+version = "0.2.3"
 
 [dependencies.vec-graph]
 git = "https://github.com/emallson/vec-graph.git"
 optional = false
 
-[dependencies.gurobi]
-git = "https://github.com/emallson/gurobi.rs.git"
-optional = true
-
 [dev-dependencies]
 quickcheck = "0.4.1"
 
-[profile]
+[features]
+cplex = ["rplex"]
+default = ["grb"]
+grb = ["gurobi"]
+exact = []
 
-[profile.release]
-debug = true
+[profile]
 
 [profile.dev]
 opt-level = 2
+
+[profile.release]
+debug = true

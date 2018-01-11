@@ -6,7 +6,7 @@ dependencies = [
  "bit-set 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "capngraph 0.3.0 (git+https://github.com/emallson/capngraph.git)",
  "docopt 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "gurobi 0.1.0 (git+https://github.com/emallson/gurobi.rs.git)",
+ "gurobi 0.1.1 (git+https://github.com/emallson/gurobi.rs.git)",
  "lazy_static 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "nom 3.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "petgraph 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -228,8 +228,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "gurobi"
-version = "0.1.0"
-source = "git+https://github.com/emallson/gurobi.rs.git#550f855434d117912b113c68484ac65f0cb1f2da"
+version = "0.1.1"
+source = "git+https://github.com/emallson/gurobi.rs.git#e275cfae4e1f7b6302bf76bb55e7e570707608dd"
 dependencies = [
  "glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.33 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -790,7 +790,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum fnv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)" = "6cc484842f1e2884faf56f529f960cc12ad8c71ce96cc7abba0a067c98fee344"
 "checksum futures 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)" = "05a23db7bd162d4e8265968602930c476f688f0c180b44bdaf55e0cb2c687558"
 "checksum glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
-"checksum gurobi 0.1.0 (git+https://github.com/emallson/gurobi.rs.git)" = "<none>"
+"checksum gurobi 0.1.1 (git+https://github.com/emallson/gurobi.rs.git)" = "<none>"
 "checksum isatty 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "fa500db770a99afe2a0f2229be2a3d09c7ed9d7e4e8440bf71253141994e240f"
 "checksum itoa 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "ae3088ea4baeceb0284ee9eea42f591226e6beaecf65373e41b38d95a1b8e7a1"
 "checksum itoa 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8324a32baf01e2ae060e9de58ed0bc2320c9a2833491ee36cd3b4c414de4db8c"
