@@ -17,6 +17,18 @@ name = "e-exact"
 path = "src/e-exact.rs"
 required-features = ["grb", "exact"]
 
+[[bin]]
+name = "build-data"
+path = "src/bin/build-data.rs"
+
+[[bin]]
+name = "export-data"
+path = "src/bin/export-data.rs"
+
+[[bin]]
+name = "evaluate"
+path = "src/bin/evaluate.rs"
+
 [dependencies]
 bincode = "0.8.0"
 bit-set = "0.4.0"
