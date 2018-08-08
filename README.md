@@ -8,6 +8,9 @@ and solving is done with Gurobi via [this
 library](https://github.com/emallson/gurobi.rs) or CPLEX via [this
 library](https://github.com/emallson/rplex).
 
+Note that while the LT model is *technically* supported, it was not used 
+in the corresponding paper and has not been extensively tested.
+
 Gurobi is the default due to some memory issues we ran into in recent versions
 of CPLEX.
 
