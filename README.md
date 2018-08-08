@@ -12,7 +12,17 @@ Note that while the LT model is *technically* supported, it was not used
 in the corresponding paper and has not been extensively tested.
 
 Gurobi is the default due to some memory issues we ran into in recent versions
-of CPLEX.
+of CPLEX. It is recommended to use Gurobi if possible.
+
+## Building
+
+After [installing Rust](https://rustup.rs/) and either [Gurobi](http://www.gurobi.com/) or [CPLEX](https://www.ibm.com/analytics/cplex-optimizer), simply run the following to compile the optimized version:
+
+```sh
+cargo build --release
+```
+
+To build the unoptimized version (for debugging **only**---it will be very slow), run `cargo build` instead.
 
 ## Input Format
 
